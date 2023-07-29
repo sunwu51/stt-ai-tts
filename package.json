@@ -1,0 +1,21 @@
+{
+  "name": "y",
+  "version": "1.0.0",
+  "description": "这是个套壳的演示项目，主要是集成了语音转文字，AI Chat还有文字转语音三种API。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/express": "^4.17.17",
+    "@types/node": "^20.4.5",
+    "chatgpt": "^5.2.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "moment-timezone": "^0.5.43",
+    "tencentcloud-sdk-nodejs": "^4.0.652",
+    "ts-node": "^10.9.1"
+  }
+}

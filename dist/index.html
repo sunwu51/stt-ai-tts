@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>录音示例</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/showdown/dist/showdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    <style>
+        code {
+            background-color: #f1f1f1;
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            color: darkmagenta;
+            padding: 2px 5px;
+        }
+        .bottom {
+            position: fixed;
+            bottom: 0;
+        }
+
+        body {
+            margin: 10px 10vw;
+        }
+        #container {
+            height: 70vh;
+            overflow-y: scroll;
+            scroll-behavior: smooth;
+        }
+    </style>
+</head>
+<body>
+    <div class="bottom">
+        <div>
+            <textarea style="width: 80vw; height: 150px;" id="question" placeholder="请输入问题，或点击开始说话"></textarea>
+        </div>
+        <button id="sendButton">发送</button>
+        <button id="recordButton">开始说话</button>
+    </div>
+    <div id="container">
+    </div>
+    </div>
+    <script>
+
+        function base64ToBytes(base64) {
+            const binString = atob(base64);
+            return Uint8Array.from(binString, (m) => m.codePointAt(0));
+        }
+
+        function bytesToBase64(bytes) {
+            const binString = Array.from(bytes, (x) => String.fromCodePoint(x)).join("");
+            return btoa(binString);
+        }
+
+        const recordButton = document.getElementById('recordButton');
+        const sendButton = document.getElementById('sendButton')
+        const question = document.getElementById('question')
+        const container = document.getElementById('container')
+        const converter = new showdown.Converter()
+        recordButton.addEventListener('click', startRecording);
+        sendButton.addEventListener('click', sendMsg);
+
+        let mediaRecorder;
+        let recordedChunks = [];
+        var audioBlob;
+
+        // 点击 说话 按钮后开始录制
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.addEventListener('dataavailable', (event) => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            });
+
+            mediaRecorder.addEventListener('stop', async () => {
+                audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+                recordedChunks = []
+                // 切换按钮的功能 结束录制->开始录制
+                recordButton.textContent = '开始说话';
+                const reader = new FileReader();
+                // 读取Blob数据
+                reader.readAsDataURL(audioBlob);
+
+                recordButton.disabled = true;
+                // 当读取完成时触发load事件
+                reader.onload = async function() {
+                    // 获取Base64编码的数据
+                    const base64Data = reader.result;
+                    const b64 = base64Data.substring(base64Data.lastIndexOf(',') + 1);
+                    console.log(b64)
+                    const r = await fetch('./chat/stt', {
+                        method: "POST",
+                        headers:{
+                            'content-type': "application/x-www-form-urlencoded"
+                        },
+                        body:`audio=${encodeURIComponent(b64)}`
+                    })
+                    const j = await r.json();
+                    console.log(j)
+                    question.value = j.text;
+                    recordButton.disabled = false;
+                };
+                recordButton.removeEventListener('click', stopRecording);
+                recordButton.addEventListener('click', startRecording);
+            });
+            mediaRecorder.start();
+            recordButton.textContent = '说完了';
+            // 切换按钮的功能 开示录制->结束录制
+            recordButton.removeEventListener('click', startRecording);
+            recordButton.addEventListener('click', stopRecording);
+        }
+
+        // 点击 说完了 停止录制，触发媒体录制结束，stop函数注册了whisper
+        async function stopRecording() {
+            mediaRecorder.stop();
+        }
+
+        // 点击 发送
+        async function sendMsg(){
+            const msg = question.value;
+            appendPre(msg);
+
+            // 获取或创建新会话
+            let cid = sessionStorage.getItem('cid');
+            if (!cid) {
+                console.log("creating conversation...")
+                const conversationCreateRes = await (await fetch('./conversation/create', {
+                    method:'POST'
+                })).json();
+                cid = conversationCreateRes.cid;
+                sessionStorage.setItem('cid', cid);
+            }
+            // 发送消息，得到ai的回答
+            const messageRes = await (await fetch('./chat/message', {
+                method:'POST',
+                headers:{
+                    'content-type': "application/x-www-form-urlencoded"
+                },
+                body: `msg=${encodeURIComponent(msg)}&cid=${encodeURIComponent(cid)}`
+            })).json();
+            appendAnswer(messageRes.msg);
+            appendAudioBtn(messageRes.msg);
+        }
+
+        // 文字转语音
+        async function tts(text){
+            const {audio} = await (await fetch('./chat/tts', {
+                method:'POST',
+                headers:{
+                    'content-type': "application/x-www-form-urlencoded"
+                },
+                body: `text=${encodeURIComponent(text)}`
+            })).json();
+            const bytes = base64ToBytes(audio);
+
+            appendAudio(new Blob([bytes]))
+        }
+
+        // append都是dom的追加
+        function appendPre(text) {
+            let hr = document.createElement('hr');
+            container.appendChild(hr);
+            let pre = document.createElement('pre');
+            pre.textContent = text;
+            container.appendChild(pre);
+            container.scrollTop = container.scrollHeight;
+            return pre
+        }
+        
+
+        function appendAnswer(text) {
+            let html = converter.makeHtml(text)
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            container.appendChild(div);
+            // Prism.highlightAll();
+            Prism.highlightAllUnder(container)
+        }
+
+        function appendAudio(blob) {
+            let audio = document.createElement('audio');
+            let audioURL = URL.createObjectURL(blob);
+            audio.controls = true;
+            audio.src = audioURL;
+            audio.play();
+            container.appendChild(audio);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function appendAudioBtn(chatText) {
+            let btn = document.createElement('button');
+            btn.textContent = '转语音'
+            btn.addEventListener('click', ()=> {
+                tts(chatText)
+                container.removeChild(btn)
+            })
+            container.appendChild(btn)
+            container.scrollTop = container.scrollHeight;
+        }
+    </script>
+</body>
+</html>
