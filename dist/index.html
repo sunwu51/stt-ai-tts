@@ -149,9 +149,9 @@
                     body: `msg=${encodeURIComponent(msg)}&cid=${encodeURIComponent(cid)}`
                 })).json();
                 appendAnswer(messageRes.msg);
-                // 200字以内支持转语音，太多了不支持
-                if (messageRes.msg.length <= 200)
-                    appendAudioBtn(messageRes.msg);
+                // 400字以内支持转语音，太多了不支持
+                if (messageRes.msg.length <= 400)
+                    tts(messageRes.msg);
             } catch (e) {
                 console.error(e);
                 sessionStorage.removeItem('cid');
